@@ -1,16 +1,33 @@
-from marshmallow import Schema
-from marshmallow.fields import String, Date, Integer, Boolean
+from datetime import datetime
+from arango_orm.fields import String, Date, Integer, Boolean
 from arango_orm import Collection, Relation, Graph, GraphConnection
+from arango_orm.references import relationship, graph_relationship
+
+from .utils import lazy_property
 
 
 class Person(Collection):
 
     __collection__ = 'persons'
+    _allow_extra_fields = False
+    _index = [{'type': 'hash', 'unique': False, 'fields': ['name']}]
+    _allow_extra_fields = False  # prevent extra properties from saving into DB
 
-    class _Schema(Schema):
-        _key = String(required=True)
-        name = String(required=True, allow_none=False)
-        dob = Date()
+    _key = String(required=True)
+    name = String(required=True, allow_none=False)
+    age = Integer(missing=None)
+    dob = Date()
+    is_staff = Boolean(default=False)
+
+    cars = relationship(__name__ + ".Car", '_key', target_field='owner_key')
+
+    @property
+    def is_adult(self):
+        return self.age and self.age >= 18
+
+    @lazy_property
+    def lazy_is_adult(self):
+        return self.age and self.age >= 18
 
     def __str__(self):
         return "<Person(" + self.name + ")>"
@@ -19,24 +36,30 @@ class Person(Collection):
 class Car(Collection):
 
     __collection__ = 'cars'
+    _allow_extra_fields = True
 
-    class _Schema(Schema):
+    make = String(required=True)
+    model = String(required=True)
+    year = Integer(required=True)
+    owner_key = String()
 
-        make = String(required=True)
-        model = String(required=True)
-        year = Integer(required=True)
+    owner = relationship(Person, 'owner_key')
 
     def __str__(self):
         return "<Car({} - {} - {})>".format(self.make, self.model, self.year)
 
+persons = [
+    Person(_key='kashif', name='Kashif Iftikhar', dob=datetime.today()),
+    Person(_key='azeen', name='Azeen Kashif', dob=datetime.today())
+]
 cars = [
-    Car(make="Honda", model="Civic", year=1984),
-    Car(make="Honda", model="Civic", year=1995),
-    Car(make="Honda", model="Civic", year=1998),
-    Car(make="Honda", model="Civic", year=2001),
-    Car(make="Toyota", model="Corolla", year=1988),
-    Car(make="Toyota", model="Corolla", year=2004),
-    Car(make="Mitsubishi", model="Lancer", year=2005)
+    Car(make="Honda", model="Civic", year=1984, owner_key='kashif'),
+    Car(make="Honda", model="Civic", year=1995, owner_key='kashif'),
+    Car(make="Honda", model="Civic", year=1998, owner_key='Azeen'),
+    Car(make="Honda", model="Civic", year=2001, owner_key='Azeen'),
+    Car(make="Toyota", model="Corolla", year=1988, owner_key='kashif'),
+    Car(make="Toyota", model="Corolla", year=2004, owner_key='Azeen'),
+    Car(make="Mitsubishi", model="Lancer", year=2005, owner_key='Azeen')
 ]
 
 
@@ -45,10 +68,9 @@ class Student(Collection):
 
     __collection__ = 'students'
 
-    class _Schema(Schema):
-        _key = String(required=True)  # registration number
-        name = String(required=True, allow_none=False)
-        age = Integer()
+    _key = String(required=True)  # registration number
+    name = String(required=True, allow_none=False)
+    age = Integer()
 
     def __str__(self):
         return "<Student({})>".format(self.name)
@@ -58,9 +80,8 @@ class Teacher(Collection):
 
     __collection__ = 'teachers'
 
-    class _Schema(Schema):
-        _key = String(required=True)  # employee id
-        name = String(required=True)
+    _key = String(required=True)  # employee id
+    name = String(required=True)
 
     def __str__(self):
         return "<Teacher({})>".format(self.name)
@@ -70,11 +91,10 @@ class Subject(Collection):
 
     __collection__ = 'subjects'
 
-    class _Schema(Schema):
-        _key = String(required=True)  # subject code
-        name = String(required=True)
-        credit_hours = Integer()
-        has_labs = Boolean(missing=True)
+    _key = String(required=True)  # subject code
+    name = String(required=True)
+    credit_hours = Integer()
+    has_labs = Boolean(missing=True)
 
     def __str__(self):
         return "<Subject({})>".format(self.name)
@@ -84,8 +104,8 @@ class SpecializesIn(Relation):
 
     __collection__ = 'specializes_in'
 
-    class _Schema(Schema):
-        expertise_level = String(required=True, options=["expert", "medium", "basic"])
+    _key = String(required=True)
+    expertise_level = String(required=True, options=["expert", "medium", "basic"])
 
     def __str__(self):
         return "<SpecializesIn(_key={}, expertise_level={}, _from={}, _to={})>".format(
@@ -96,8 +116,48 @@ class Area(Collection):
 
     __collection__ = 'areas'
 
-    class _Schema(Schema):
-        _key = String(required=True)  # area name
+    _key = String(required=True)  # area name
+
+
+# DUMMY COLLECTIONS #
+
+
+class DummyFromCol1(Collection):
+
+    __collection__ = 'dummy_from_col_1'
+    _allow_extra_fields = True
+
+    _key = String(required=True)
+
+
+class DummyFromCol2(Collection):
+
+    __collection__ = 'dummy_from_col_2'
+
+    _key = String(required=True)
+
+
+class DummyRelation(Relation):
+
+    __collection__ = 'dummy_relation'
+
+    _key = String(required=True)
+    _from = String()
+    _to = String()
+
+
+class DummyToCol1(Collection):
+
+    __collection__ = 'dummy_to_col_1'
+
+    _key = String(required=True)
+
+
+class DummyToCol2(Collection):
+
+    __collection__ = 'dummy_to_col_2'
+
+    _key = String(required=True)
 
 
 class UniversityGraph(Graph):
@@ -143,6 +203,8 @@ areas_data = [
 specializations_data = [
     SpecializesIn(_from="teachers/T001", _to="subjects/ITP101", expertise_level="medium")
 ]
+
+
 
 
 # FOR v, e, p IN 1..3 INBOUND 'areas/gotham'

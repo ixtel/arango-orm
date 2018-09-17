@@ -28,7 +28,15 @@ class Query(object):
     def count(self):
         "Return collection count"
 
-        return self._db.collection(self._CollectionClass.__collection__).count()
+        # return self._db.collection(self._CollectionClass.__collection__).count()
+        aql = self._make_aql()
+
+        aql += '\n COLLECT WITH COUNT INTO rec_count RETURN rec_count'
+        # print(aql)
+
+        results = self._db.aql.execute(aql, bind_vars=self._bind_vars)
+
+        return next(results)
 
     def by_key(self, key, **kwargs):
         "Return a single document using it's key"
@@ -37,9 +45,10 @@ class Query(object):
         if doc_dict is None:
             return None
 
-        return self._CollectionClass._load(doc_dict)
+        return self._CollectionClass._load(doc_dict, db=self._db)
 
-    def filter(self, condition, _or=False, prepend_rec_name=True, **kwargs):
+    def filter(self, condition, _or=False, prepend_rec_name=True, rec_name_placeholder=None,
+               **kwargs):
         """
         Filter the results based on given condition. By default filter conditions are joined
         by AND operator if this method is called multiple times. If you want to use the OR operator
@@ -51,10 +60,23 @@ class Query(object):
             joiner = 'OR' if _or else 'AND'
 
         self._filter_conditions.append(dict(condition=condition, joiner=joiner,
-                                            prepend_rec_name=prepend_rec_name))
+                                            prepend_rec_name=prepend_rec_name,
+                                            rec_name_placeholder=rec_name_placeholder))
         self._bind_vars.update(kwargs)
 
         return self
+
+    def filter_by(self, _or=False, prepend_rec_name=True, **kwargs):
+        """Filter the results by keywords"""
+        if not kwargs:
+            return self
+
+        condition = ' AND '.join(['$REC.{0}==@{0}'.format(k) for k in kwargs])
+        if len(kwargs) > 1:
+            condition = '({0})'.format(condition)
+
+        return self.filter(condition, _or=_or, prepend_rec_name=False,
+                           rec_name_placeholder='$REC', **kwargs)
 
     def sort(self, col_name):
         "Add a sort condition, sorting order of ASC or DESC can be provided after col_name and a space"
@@ -93,6 +115,10 @@ class Query(object):
 
             line += fc['condition']
 
+            rec_ph = fc.get('rec_name_placeholder')
+            if rec_ph:
+                line = line.replace(rec_ph, 'rec')
+
             aql += line + ' '
 
         # Process Sort
@@ -107,6 +133,8 @@ class Query(object):
         # Process Limit
         if self._limit:
             aql += "\n LIMIT {}, {} ".format(self._limit_start_record, self._limit)
+
+        log.debug(aql)
 
         return aql
 
@@ -157,15 +185,30 @@ class Query(object):
         aql = self._make_aql()
 
         aql += '\n RETURN rec'
-        print(aql)
+        # print(aql)
 
         results = self._db.aql.execute(aql, bind_vars=self._bind_vars)
         ret = []
 
         for rec in results:
-            ret.append(self._CollectionClass._load(rec))
+            ret.append(self._CollectionClass._load(rec, db=self._db))
 
         return ret
+
+    def first(self):
+        "Return the first record that matches the query"
+
+        rec = self.limit(1).all()
+        if len(rec) > 0:
+            return rec[0]
+        else:
+            return None
+
+    def one(self):
+        "Assert that only one record is present for the query and return that record"
+
+        assert 1 == self.count()
+        return self.first()
 
     def aql(self, query, **kwargs):
         """
@@ -178,4 +221,4 @@ class Query(object):
         else:
             kwargs['bind_vars'] = {'@collection': self._bind_vars['@collection']}
 
-        return [self._CollectionClass._load(rec) for rec in self._db.aql.execute(query, **kwargs)]
+        return [self._CollectionClass._load(rec, db=self._db) for rec in self._db.aql.execute(query, **kwargs)]

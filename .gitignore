@@ -90,3 +90,8 @@ ENV/
 
 # Komodoproject
 *.komodoproject
+
+# ctags
+tags
+.tags
+.tags1
